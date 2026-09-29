@@ -1,74 +1,71 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, UseGuards } from '@nestjs/common';
-import {
-  BaseController,
-  CurrentUser,
-  ListQuery,
-  MessageService,
-  Permissions,
-  PermissionsGuard,
-  isPaginatedResult,
-} from '@app/core';
+import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Put } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ApiListQuery, CurrentUser, ListQuery, Permissions, ResponseMessage, Serialize } from '@app/core';
 import type { ParsedListQuery } from '@app/core';
 import { BrandService } from './brand.service.js';
 import { BrandResource } from './brand.resource.js';
 import { CreateBrandDto } from './dto/create-brand.dto.js';
 import { UpdateBrandDto } from './dto/update-brand.dto.js';
+import { BRAND_SEARCHABLE_FIELDS } from './entities/brand.entity.js';
 
 /**
  * Equivalent of Modules/Brand/app/Http/Controllers/BrandController.php +
  * routes/api.php's `Route::apiResource('brand', ...)->crudPermissions(...)`.
  * Served at /v1/brands via URI versioning (see app.setup.ts).
- * No try/catch/handleException() per action - AllExceptionsFilter (global,
- * from CoreModule) does that; `@Permissions()` + PermissionsGuard replaces
- * the `->crudPermissions('brand')` route macro + BasePolicy.
+ *
+ * Handlers just return data. The global pieces from @app/core do the rest:
+ * JwtAuthGuard + PermissionsGuard check `@Permissions()`, @Serialize() shapes
+ * output through BrandResource, @ResponseMessage() adds the `message`, and
+ * AllExceptionsFilter turns any error into `{ message }`.
  */
+@ApiTags('brands')
+@ApiBearerAuth()
+@Serialize(BrandResource)
 @Controller({ path: 'brands', version: '1' })
-@UseGuards(PermissionsGuard)
-export class BrandController extends BaseController {
-  constructor(
-    private readonly brandService: BrandService,
-    messages: MessageService,
-  ) {
-    super(messages);
-  }
+export class BrandController {
+  constructor(private readonly brandService: BrandService) {}
 
   @Get()
   @Permissions('brand.read')
-  async index(@ListQuery() query: ParsedListQuery) {
-    const result = await this.brandService.index(query);
-    const data = isPaginatedResult(result)
-      ? { ...result, data: BrandResource.collection(result.data) }
-      : BrandResource.collection(result as unknown[]);
-
-    return this.success(this.lang('fetch-all-success'), data);
+  @ResponseMessage('fetch-all-success')
+  @ApiListQuery(BRAND_SEARCHABLE_FIELDS)
+  index(@ListQuery() query: ParsedListQuery) {
+    return this.brandService.index(query);
   }
 
   @Get(':id')
   @Permissions('brand.read')
-  async show(@Param('id') id: string) {
-    const brand = await this.brandService.show(id);
-    return this.success(this.lang('fetch-success'), this.toResource(BrandResource, brand));
+  @ResponseMessage('fetch-success')
+  show(@Param('id', ParseUUIDPipe) id: string) {
+    return this.brandService.show(id);
   }
 
   // Nest defaults POST to 201 Created, matching Response::HTTP_CREATED in the Laravel controller.
   @Post()
   @Permissions('brand.create')
-  async store(@Body() dto: CreateBrandDto, @CurrentUser('id') userId: string) {
-    const brand = await this.brandService.store(dto, userId);
-    return this.success(this.lang('create-success'), this.toResource(BrandResource, brand));
+  @ResponseMessage('create-success')
+  store(@Body() dto: CreateBrandDto, @CurrentUser('id') userId: string) {
+    return this.brandService.store(dto, userId);
   }
 
   @Put(':id')
   @Permissions('brand.update')
-  async update(@Param('id') id: string, @Body() dto: UpdateBrandDto, @CurrentUser('id') userId: string) {
-    const brand = await this.brandService.update(id, dto, userId);
-    return this.success(this.lang('update-success'), this.toResource(BrandResource, brand));
+  @ResponseMessage('update-success')
+  update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateBrandDto, @CurrentUser('id') userId: string) {
+    return this.brandService.update(id, dto, userId);
   }
 
   @Delete(':id')
   @Permissions('brand.delete')
-  async destroy(@Param('id') id: string) {
-    await this.brandService.destroy(id);
-    return this.success(this.lang('delete-success'));
+  @ResponseMessage('delete-success')
+  destroy(@Param('id', ParseUUIDPipe) id: string) {
+    return this.brandService.destroy(id);
+  }
+
+  @Patch(':id/restore')
+  @Permissions('brand.update')
+  @ResponseMessage('restore-success')
+  restore(@Param('id', ParseUUIDPipe) id: string) {
+    return this.brandService.restore(id);
   }
 }

@@ -94,24 +94,28 @@ export class ${Pascal} extends CoreEntity {
 export const ${Pascal.toUpperCase()}_SEARCHABLE_FIELDS = ['name', 'slug'];
 `,
 
-    [`dto/create-${kebab}.dto.ts`]: `import { IsOptional, IsString, MaxLength } from 'class-validator';
+    [`dto/create-${kebab}.dto.ts`]: `import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class Create${Pascal}Dto {
+  @ApiProperty({ maxLength: 255 })
   @IsString()
   @MaxLength(255)
   name: string;
 
+  @ApiProperty({ maxLength: 255 })
   @IsString()
   @MaxLength(255)
   slug: string;
 
+  @ApiPropertyOptional()
   @IsOptional()
   @IsString()
   description?: string;
 }
 `,
 
-    [`dto/update-${kebab}.dto.ts`]: `import { PartialType } from '@nestjs/mapped-types';
+    [`dto/update-${kebab}.dto.ts`]: `import { PartialType } from '@nestjs/swagger';
 import { Create${Pascal}Dto } from './create-${kebab}.dto.js';
 
 export class Update${Pascal}Dto extends PartialType(Create${Pascal}Dto) {}
@@ -159,65 +163,64 @@ export class ${Pascal}Service extends BaseCrudService<${Pascal}> {
 }
 `,
 
-    [`${kebab}.controller.ts`]: `import { Body, Controller, Delete, Get, Param, Post, Put, UseGuards } from '@nestjs/common';
-import {
-  BaseController,
-  ListQuery,
-  MessageService,
-  Permissions,
-  PermissionsGuard,
-  isPaginatedResult,
-} from '@app/core';
+    [`${kebab}.controller.ts`]: `import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Put } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ApiListQuery, ListQuery, Permissions, ResponseMessage, Serialize } from '@app/core';
 import type { ParsedListQuery } from '@app/core';
 import { ${Pascal}Service } from './${kebab}.service.js';
 import { ${Pascal}Resource } from './${kebab}.resource.js';
 import { Create${Pascal}Dto } from './dto/create-${kebab}.dto.js';
 import { Update${Pascal}Dto } from './dto/update-${kebab}.dto.js';
+import { ${Pascal.toUpperCase()}_SEARCHABLE_FIELDS } from './entities/${kebab}.entity.js';
 
+@ApiTags('${kebabPlural}')
+@ApiBearerAuth()
+@Serialize(${Pascal}Resource)
 @Controller({ path: '${routePath}', version: '1' })
-@UseGuards(PermissionsGuard)
-export class ${Pascal}Controller extends BaseController {
-  constructor(private readonly ${camel}Service: ${Pascal}Service, messages: MessageService) {
-    super(messages);
-  }
+export class ${Pascal}Controller {
+  constructor(private readonly ${camel}Service: ${Pascal}Service) {}
 
   @Get()
   @Permissions('${permissionKey}.read')
-  async index(@ListQuery() query: ParsedListQuery) {
-    const result = await this.${camel}Service.index(query);
-    const data = isPaginatedResult(result)
-      ? { ...result, data: ${Pascal}Resource.collection(result.data) }
-      : ${Pascal}Resource.collection(result as unknown[]);
-
-    return this.success(this.lang('fetch-all-success'), data);
+  @ResponseMessage('fetch-all-success')
+  @ApiListQuery(${Pascal.toUpperCase()}_SEARCHABLE_FIELDS)
+  index(@ListQuery() query: ParsedListQuery) {
+    return this.${camel}Service.index(query);
   }
 
   @Get(':id')
   @Permissions('${permissionKey}.read')
-  async show(@Param('id') id: string) {
-    const ${camel} = await this.${camel}Service.show(id);
-    return this.success(this.lang('fetch-success'), this.toResource(${Pascal}Resource, ${camel}));
+  @ResponseMessage('fetch-success')
+  show(@Param('id', ParseUUIDPipe) id: string) {
+    return this.${camel}Service.show(id);
   }
 
   @Post()
   @Permissions('${permissionKey}.create')
-  async store(@Body() dto: Create${Pascal}Dto) {
-    const ${camel} = await this.${camel}Service.store(dto);
-    return this.success(this.lang('create-success'), this.toResource(${Pascal}Resource, ${camel}));
+  @ResponseMessage('create-success')
+  store(@Body() dto: Create${Pascal}Dto) {
+    return this.${camel}Service.store(dto);
   }
 
   @Put(':id')
   @Permissions('${permissionKey}.update')
-  async update(@Param('id') id: string, @Body() dto: Update${Pascal}Dto) {
-    const ${camel} = await this.${camel}Service.update(id, dto);
-    return this.success(this.lang('update-success'), this.toResource(${Pascal}Resource, ${camel}));
+  @ResponseMessage('update-success')
+  update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: Update${Pascal}Dto) {
+    return this.${camel}Service.update(id, dto);
   }
 
   @Delete(':id')
   @Permissions('${permissionKey}.delete')
-  async destroy(@Param('id') id: string) {
-    await this.${camel}Service.destroy(id);
-    return this.success(this.lang('delete-success'));
+  @ResponseMessage('delete-success')
+  destroy(@Param('id', ParseUUIDPipe) id: string) {
+    return this.${camel}Service.destroy(id);
+  }
+
+  @Patch(':id/restore')
+  @Permissions('${permissionKey}.update')
+  @ResponseMessage('restore-success')
+  restore(@Param('id', ParseUUIDPipe) id: string) {
+    return this.${camel}Service.restore(id);
   }
 }
 `,

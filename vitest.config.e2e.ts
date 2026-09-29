@@ -13,6 +13,8 @@ export default defineConfig({
       DB_TYPE: 'sqljs',
       DB_SYNCHRONIZE: 'false',
       DB_MIGRATIONS_RUN: 'true',
+      JWT_SECRET: 'e2e-secret-e2e-secret-e2e-secret-e2e',
+      SWAGGER_ENABLED: 'true',
     },
   },
 });

@@ -1,4 +1,5 @@
 import { MessageService } from '../i18n/message.service.js';
+import { ResponseEnvelope } from '../common/responses/response-envelope.js';
 
 /**
  * Equivalent of Modules/Core/app/Http/Controllers/BaseController.php, minus
@@ -15,6 +16,11 @@ import { MessageService } from '../i18n/message.service.js';
  * What's left is the part that's genuinely controller-specific: building the
  * `{ message, data }` envelope body and picking the right Resource class,
  * plus the same lang() shorthand as the Laravel version.
+ *
+ * For the common case - a fixed message key and one Resource per controller -
+ * prefer the declarative @ResponseMessage() + @Serialize() decorators and just
+ * return data (see BrandController); no base class needed. Extend this when a
+ * handler builds its message at runtime (custom `:params`, conditional keys).
  */
 export abstract class BaseController {
   protected modelName: string;
@@ -32,19 +38,11 @@ export abstract class BaseController {
 
   /**
    * Builds the response body. Return this directly from a handler;
-   * TransformResponseInterceptor wraps it in the final envelope and status
-   * code stays whatever `@HttpCode()` (or the Nest default) says.
-   * Mirrors ApiResponse::response(): omits `message` when falsy and `data`
-   * when null/empty, so list/delete endpoints don't return noisy keys.
+   * TransformResponseInterceptor passes a ResponseEnvelope through untouched
+   * and the status code stays whatever `@HttpCode()` (or the Nest default) says.
    */
-  protected success(message?: string | null, data?: unknown): Record<string, unknown> {
-    const response: Record<string, unknown> = {};
-    if (message) response.message = message;
-
-    const isEmpty = data === null || data === undefined || (Array.isArray(data) && data.length === 0);
-    if (!isEmpty) response.data = data;
-
-    return response;
+  protected success(message?: string | null, data?: unknown): ResponseEnvelope {
+    return new ResponseEnvelope(message, data);
   }
 
   protected toResource(

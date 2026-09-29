@@ -8,6 +8,7 @@ import {
   IsString,
   Max,
   Min,
+  MinLength,
   ValidateIf,
   validateSync,
 } from 'class-validator';
@@ -68,6 +69,36 @@ class EnvironmentVariables {
   @IsOptional()
   @IsBooleanString()
   DB_MIGRATIONS_RUN?: string;
+
+  @IsString()
+  @MinLength(32, { message: 'JWT_SECRET must be at least 32 characters' })
+  JWT_SECRET: string;
+
+  @IsOptional()
+  @IsString()
+  JWT_ISSUER?: string;
+
+  @IsOptional()
+  @IsString()
+  JWT_AUDIENCE?: string;
+
+  @IsOptional()
+  @IsString()
+  CORS_ORIGINS?: string;
+
+  @IsOptional()
+  @IsBooleanString()
+  SWAGGER_ENABLED?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  THROTTLE_TTL?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  THROTTLE_LIMIT?: number;
 }
 
 /** Fails app startup with a readable message when required env vars are missing or malformed. */

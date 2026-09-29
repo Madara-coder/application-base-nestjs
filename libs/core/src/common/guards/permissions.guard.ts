@@ -1,17 +1,17 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { PERMISSIONS_KEY } from '../decorators/permissions.decorator.js';
+import type { AuthUser } from '../interfaces/auth-user.interface.js';
 
 /**
  * Equivalent of Modules/Core/app/Policies/BasePolicy.php's hasPermission()
  * check, applied as a guard instead of a per-model Policy class + Laravel
- * Gate. Reads permissions your auth strategy attached to `request.user`
+ * Gate. Reads the permissions JwtAuthGuard attached to `request.user`
  * (e.g. from a JWT `permissions` claim) and checks them against whatever
  * `@Permissions(...)` declares on the route/controller.
  *
- * Apply per-controller (`@UseGuards(PermissionsGuard)` alongside your auth
- * guard) rather than globally, since not every route needs a permission
- * check (e.g. public endpoints).
+ * Register it globally (APP_GUARD) after JwtAuthGuard: routes without
+ * @Permissions() pass straight through, so it only bites where declared.
  */
 @Injectable()
 export class PermissionsGuard implements CanActivate {
@@ -25,8 +25,8 @@ export class PermissionsGuard implements CanActivate {
 
     if (!required || required.length === 0) return true;
 
-    const request = context.switchToHttp().getRequest();
-    const userPermissions: string[] = request.user?.permissions ?? [];
+    const request = context.switchToHttp().getRequest<{ user?: AuthUser }>();
+    const userPermissions = request.user?.permissions ?? [];
 
     const hasAll = required.every((permission) => userPermissions.includes(permission));
     if (!hasAll) {
