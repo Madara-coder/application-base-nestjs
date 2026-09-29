@@ -1,0 +1,20 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "composite": true,
+    "declaration": true,
+    "rootDir": "../..",
+    "outDir": "../../dist/apps/api"
+  },
+  "include": [
+    "src/**/*",
+    "../../libs/core/src/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "test",
+    "**/*spec.ts",
+    "../../libs/**/*spec.ts"
+  ]
+}

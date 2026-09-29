@@ -1,3 +1,20 @@
-node_modules/
+# compiled output
 dist/
-generated/
+*.tsbuildinfo
+
+# dependencies
+node_modules/
+
+# env
+.env
+.env.*
+!.env.example
+
+# tests
+coverage/
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json

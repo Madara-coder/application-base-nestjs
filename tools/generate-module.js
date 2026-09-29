@@ -4,21 +4,21 @@
  * Modules/Core/app/Console/Commands/MakeModuleCrudCommand.php
  * (`php artisan module:make-supersonic-crud`).
  *
- * Generates a schema, create/update DTOs, repository, resource, service,
- * controller and module for a new entity, wired against @cosmetic/nestjs-core,
- * following the same shape as example/brand/.
+ * Generates a TypeORM entity, create/update DTOs, repository, resource, service,
+ * controller and module for a new entity, wired against @app/core, following
+ * the same shape as apps/api/src/modules/brand/. (`nest g resource` only
+ * scaffolds a plain controller/service pair, so it doesn't know about
+ * BaseRepository/BaseCrudService/BaseResource.)
  *
  * Usage:
- *   node tools/generate-module.js Brand
- *   node tools/generate-module.js ProductCategory --out ../api/src/modules
+ *   npm run generate:module -- Brand
+ *   npm run generate:module -- ProductCategory --out apps/api/src/modules --force
  */
-const fs = require('fs');
-const path = require('path');
+import fs from 'node:fs';
+import path from 'node:path';
 
 function toPascalCase(input) {
-  return input
-    .replace(/[-_\s]+(.)?/g, (_, c) => (c ? c.toUpperCase() : ''))
-    .replace(/^(.)/, (c) => c.toUpperCase());
+  return input.replace(/[-_\s]+(.)?/g, (_, c) => (c ? c.toUpperCase() : '')).replace(/^(.)/, (c) => c.toUpperCase());
 }
 
 function toCamelCase(input) {
@@ -52,7 +52,10 @@ function main() {
   const args = process.argv.slice(2);
   const force = args.includes('--force');
   const outFlagIndex = args.indexOf('--out');
-  const outDir = outFlagIndex !== -1 ? args[outFlagIndex + 1] : path.join(__dirname, '..', 'generated');
+  const outDir =
+    outFlagIndex !== -1
+      ? args[outFlagIndex + 1]
+      : path.join(import.meta.dirname, '..', 'apps', 'api', 'src', 'modules');
   const nameArg = args.find((arg) => !arg.startsWith('--') && arg !== outDir);
 
   if (!nameArg) {
@@ -64,29 +67,29 @@ function main() {
   const camel = toCamelCase(nameArg);
   const kebab = toKebabCase(nameArg);
   const kebabPlural = pluralize(kebab);
-  const routePrefix = `v1/${kebabPlural}`;
+  const routePath = kebabPlural;
   const permissionKey = kebab.replace(/-/g, '_');
-  const eventCollection = pluralize(camel);
+  const tableName = pluralize(kebab).replace(/-/g, '_');
 
   const moduleDir = path.join(outDir, kebab);
 
   const files = {
-    [`schemas/${kebab}.schema.ts`]: `import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument } from 'mongoose';
-import { BaseSchema } from '@cosmetic/nestjs-core';
+    [`entities/${kebab}.entity.ts`]: `import { Column, Entity } from 'typeorm';
+import { CoreEntity } from '@app/core';
 
-export type ${Pascal}Document = HydratedDocument<${Pascal}>;
-
-@Schema({ timestamps: true })
-export class ${Pascal} extends BaseSchema {
-  @Prop({ required: true, trim: true })
+// Always give @Column an explicit type: the migration CLI runs through tsx,
+// which doesn't emit the decorator metadata TypeORM would otherwise infer it from.
+@Entity('${tableName}')
+export class ${Pascal} extends CoreEntity {
+  @Column({ type: 'varchar', length: 255 })
   name: string;
 
-  @Prop({ required: true, unique: true, trim: true, lowercase: true })
+  @Column({ type: 'varchar', length: 255, unique: true })
   slug: string;
-}
 
-export const ${Pascal}Schema = SchemaFactory.createForClass(${Pascal});
+  @Column({ type: 'text', nullable: true })
+  description?: string | null;
+}
 
 export const ${Pascal.toUpperCase()}_SEARCHABLE_FIELDS = ['name', 'slug'];
 `,
@@ -109,33 +112,33 @@ export class Create${Pascal}Dto {
 `,
 
     [`dto/update-${kebab}.dto.ts`]: `import { PartialType } from '@nestjs/mapped-types';
-import { Create${Pascal}Dto } from './create-${kebab}.dto';
+import { Create${Pascal}Dto } from './create-${kebab}.dto.js';
 
 export class Update${Pascal}Dto extends PartialType(Create${Pascal}Dto) {}
 `,
 
     [`${kebab}.repository.ts`]: `import { Injectable } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { BaseRepository } from '@cosmetic/nestjs-core';
-import { ${Pascal}, ${Pascal}Document, ${Pascal.toUpperCase()}_SEARCHABLE_FIELDS } from './schemas/${kebab}.schema';
+import { BaseRepository } from '@app/core';
+import { ${Pascal}, ${Pascal.toUpperCase()}_SEARCHABLE_FIELDS } from './entities/${kebab}.entity.js';
 
 @Injectable()
-export class ${Pascal}Repository extends BaseRepository<${Pascal}Document> {
-  constructor(@InjectModel(${Pascal}.name) ${camel}Model: Model<${Pascal}Document>, eventEmitter: EventEmitter2) {
-    super(${camel}Model, ${Pascal.toUpperCase()}_SEARCHABLE_FIELDS, eventEmitter);
+export class ${Pascal}Repository extends BaseRepository<${Pascal}> {
+  constructor(@InjectRepository(${Pascal}) ${camel}Repository: Repository<${Pascal}>, eventEmitter: EventEmitter2) {
+    super(${camel}Repository, ${Pascal.toUpperCase()}_SEARCHABLE_FIELDS, eventEmitter);
   }
 }
 `,
 
-    [`${kebab}.resource.ts`]: `import { BaseResource } from '@cosmetic/nestjs-core';
-import { ${Pascal}Document } from './schemas/${kebab}.schema';
+    [`${kebab}.resource.ts`]: `import { BaseResource } from '@app/core';
+import { ${Pascal} } from './entities/${kebab}.entity.js';
 
-export class ${Pascal}Resource extends BaseResource<${Pascal}Document> {
+export class ${Pascal}Resource extends BaseResource<${Pascal}> {
   toJSON() {
     return this.withTimestamps({
-      id: this.entity._id,
+      id: this.entity.id,
       name: this.entity.name,
       slug: this.entity.slug,
     });
@@ -144,12 +147,12 @@ export class ${Pascal}Resource extends BaseResource<${Pascal}Document> {
 `,
 
     [`${kebab}.service.ts`]: `import { Injectable } from '@nestjs/common';
-import { BaseCrudService } from '@cosmetic/nestjs-core';
-import { ${Pascal}Document } from './schemas/${kebab}.schema';
-import { ${Pascal}Repository } from './${kebab}.repository';
+import { BaseCrudService } from '@app/core';
+import { ${Pascal} } from './entities/${kebab}.entity.js';
+import { ${Pascal}Repository } from './${kebab}.repository.js';
 
 @Injectable()
-export class ${Pascal}Service extends BaseCrudService<${Pascal}Document> {
+export class ${Pascal}Service extends BaseCrudService<${Pascal}> {
   constructor(private readonly ${camel}Repository: ${Pascal}Repository) {
     super(${camel}Repository);
   }
@@ -161,17 +164,17 @@ import {
   BaseController,
   ListQuery,
   MessageService,
-  ParsedListQuery,
   Permissions,
   PermissionsGuard,
   isPaginatedResult,
-} from '@cosmetic/nestjs-core';
-import { ${Pascal}Service } from './${kebab}.service';
-import { ${Pascal}Resource } from './${kebab}.resource';
-import { Create${Pascal}Dto } from './dto/create-${kebab}.dto';
-import { Update${Pascal}Dto } from './dto/update-${kebab}.dto';
+} from '@app/core';
+import type { ParsedListQuery } from '@app/core';
+import { ${Pascal}Service } from './${kebab}.service.js';
+import { ${Pascal}Resource } from './${kebab}.resource.js';
+import { Create${Pascal}Dto } from './dto/create-${kebab}.dto.js';
+import { Update${Pascal}Dto } from './dto/update-${kebab}.dto.js';
 
-@Controller('${routePrefix}')
+@Controller({ path: '${routePath}', version: '1' })
 @UseGuards(PermissionsGuard)
 export class ${Pascal}Controller extends BaseController {
   constructor(private readonly ${camel}Service: ${Pascal}Service, messages: MessageService) {
@@ -220,14 +223,14 @@ export class ${Pascal}Controller extends BaseController {
 `,
 
     [`${kebab}.module.ts`]: `import { Module } from '@nestjs/common';
-import { MongooseModule } from '@nestjs/mongoose';
-import { ${Pascal}, ${Pascal}Schema } from './schemas/${kebab}.schema';
-import { ${Pascal}Repository } from './${kebab}.repository';
-import { ${Pascal}Service } from './${kebab}.service';
-import { ${Pascal}Controller } from './${kebab}.controller';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { ${Pascal} } from './entities/${kebab}.entity.js';
+import { ${Pascal}Repository } from './${kebab}.repository.js';
+import { ${Pascal}Service } from './${kebab}.service.js';
+import { ${Pascal}Controller } from './${kebab}.controller.js';
 
 @Module({
-  imports: [MongooseModule.forFeature([{ name: ${Pascal}.name, schema: ${Pascal}Schema }])],
+  imports: [TypeOrmModule.forFeature([${Pascal}])],
   controllers: [${Pascal}Controller],
   providers: [${Pascal}Repository, ${Pascal}Service],
   exports: [${Pascal}Service],
@@ -240,8 +243,12 @@ export class ${Pascal}Module {}
     writeFile(path.join(moduleDir, relativePath), contents, force);
   }
 
-  console.log(`\nDone. Events for this module will emit under the "${eventCollection}.*" prefix.`);
-  console.log(`Remember to import ${Pascal}Module into AppModule.`);
+  console.log(`\nDone. Table "${tableName}"; events for this module will emit under the "${tableName}.*" prefix.`);
+  console.log('Next steps:');
+  console.log(`  1. Add ${Pascal}Module to AppModule's imports (apps/api/src/app.module.ts).`);
+  console.log(
+    `  2. npm run migration:generate --name=Create${Pascal}Table, then add it to database/migrations/index.ts.`,
+  );
 }
 
 main();

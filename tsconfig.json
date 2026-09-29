@@ -1,20 +1,28 @@
 {
   "compilerOptions": {
-    "module": "commonjs",
-    "target": "ES2021",
-    "lib": ["ES2021"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "resolvePackageJsonExports": true,
+    "esModuleInterop": true,
+    "isolatedModules": true,
     "declaration": true,
+    "removeComments": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "allowSyntheticDefaultImports": true,
+    "target": "ES2023",
+    "sourceMap": true,
     "outDir": "./dist",
-    "rootDir": "./src",
+    "incremental": true,
+    "skipLibCheck": true,
     "strict": true,
     "strictPropertyInitialization": false,
-    "experimentalDecorators": true,
-    "emitDecoratorMetadata": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "moduleResolution": "node"
+    "types": ["vitest/globals", "node"],
+    "paths": {
+      "@app/core": ["./libs/core/src/index.ts"],
+      "@app/core/*": ["./libs/core/src/*"]
+    }
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "dist", "example"]
+  "files": [],
+  "references": [{ "path": "./libs/core/tsconfig.lib.json" }, { "path": "./apps/api/tsconfig.app.json" }]
 }

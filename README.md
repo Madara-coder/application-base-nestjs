@@ -1,223 +1,228 @@
-# @cosmetic/nestjs-core
+# nestjs-core
 
-A reusable, repository-pattern "core" for NestJS + MongoDB services — the MERN-stack
-counterpart to `Modules/Core` in this repo's Laravel codebase. It exists so that every
-new NestJS module (Brand, Category, Attribute, Unit, ...) gets full CRUD, filtering,
-pagination, soft delete, a consistent response envelope, and consistent error handling
-for free, the same way every Laravel module gets it by extending `BaseRepository`,
-`BaseController`, etc.
+A NestJS + TypeORM monorepo with two projects:
 
-This is a **library, not a runnable app**. Copy this folder into (or install it as a
-local package inside) your NestJS backend, then build feature modules against it —
-see [`example/brand`](./example/brand) for a complete, working example modeled directly
-on `Modules/Brand`.
+- **`libs/core`** (`@app/core`): a reusable, repository-pattern core. It is the
+  NestJS counterpart of `Modules/Core` in the Laravel codebase. Every feature module
+  gets CRUD, filtering, pagination, soft delete, a consistent response envelope and
+  consistent error handling for free, the same way every Laravel module does by
+  extending `BaseRepository`, `BaseController` and friends.
+- **`apps/api`**: the runnable API built on it, with config, database, migrations
+  and feature modules (`brand` is the reference module, ported from `Modules/Brand`).
 
-## Why this exists
+The layout follows the standard Nest CLI monorepo (`nest new` + `nest g library`):
+ESM, `nest build` (rspack), Vitest, oxlint and Prettier.
 
-The Laravel side of this project standardized on the repository pattern specifically so
-that:
-
-1. Every module gets CRUD + filtering/search/sort/pagination without rewriting it.
-2. Controllers stay thin — no query building, no manual error-shape juggling.
-3. Cross-cutting concerns (response envelope, exception mapping, permissions) live in
-   one place instead of being copy-pasted per module.
-
-The NestJS version keeps that contract, but isn't a mechanical line-for-line port —
-where Nest's own idioms (dependency injection, global filters/interceptors, DTOs +
-`class-validator`, `PartialType`) already solve a problem better than the Laravel
-pattern did, this library uses those instead. Every file below has a comment pointing
-back at the Laravel file it replaces and calling out where/why the approach changed.
-
-## What's inside
-
-```
-nestjs-core/
-├── src/
-│   ├── core.module.ts                  Global module — import once in AppModule
-│   ├── database/base.schema.ts         BaseSchema (timestamps + soft delete)
-│   ├── repositories/
-│   │   ├── base-repository.interface.ts
-│   │   └── base.repository.ts          Generic CRUD + filter/search/sort/paginate
-│   ├── services/base-crud.service.ts   Generic index/store/show/update/destroy
-│   ├── controllers/base.controller.ts  success()/lang()/toResource() helpers
-│   ├── resources/base.resource.ts      Serializer base (BaseResource → toJSON())
-│   ├── filters/all-exceptions.filter.ts  Global error→JSON mapping
-│   ├── interceptors/transform-response.interceptor.ts  Global {message,data} envelope
-│   ├── guards/permissions.guard.ts     @Permissions() route guard
-│   ├── i18n/message.service.ts         lang() message lookup w/ per-module overrides
-│   └── common/                         DTO-less query parsing, decorators, exceptions, utils
-├── example/brand/                      Full worked example (Mongo port of Modules/Brand)
-└── tools/generate-module.js            Scaffolds a new module (schema/dto/repo/svc/ctrl)
-```
-
-## Laravel → NestJS mapping
-
-| Laravel (`Modules/Core`)                          | NestJS (`nestjs-core`)                                    | Notes |
-|----------------------------------------------------|-------------------------------------------------------------|-------|
-| `BaseRepository` + `BaseRepositoryInterface`        | `BaseRepository<T>` + `IBaseRepository<T>`                  | Same method set (`fetchAll`→`findAll`, `fetch`→`findById`, `store`→`create`, ...), Mongoose instead of Eloquent |
-| `Filterable` trait                                  | `parseListQuery()` + `BaseRepository`'s private `buildFilter()` | `?search=`, `filter[]`, `__gte_x` comparison params, sort, pagination — same query contract |
-| `BaseModel` + `HasSearchable` + `HasFillable`       | `BaseSchema` + a `SEARCHABLE_FIELDS` const per schema        | `getFillable()` has no equivalent — DTOs + `class-validator` are the allow-list, enforced at the edge instead of on the model |
-| `BaseService` + `HasBinding`                        | `BaseCrudService<T>`                                         | `HasBinding`'s macro/factory-swap is dropped — Nest's DI (`{ provide, useClass }`) already does conditional-implementation swapping |
-| `BaseController` + `ApiResponse` + `ExceptionHandler` | `BaseController` (thin) + `TransformResponseInterceptor` + `AllExceptionsFilter` | Response shaping and error handling move to **global**, one-time-registered filter/interceptor instead of being mixed into every controller |
-| `BaseRequest` (store()/update() rule switch)        | Two DTOs: `CreateXDto` + `UpdateXDto extends PartialType(CreateXDto)` | Standard Nest pattern; no method-based branching needed |
-| `BaseResource` + `CustomResource` + `ResourceRelationships` + `ResourceTimestamps` | `BaseResource<T>` | `make()`/`collection()`, `withTimestamps()`, `whenPopulated()`, `pick()` |
-| `BasePolicy` (Spatie `{policyKey}.{action}`)        | `PermissionsGuard` + `@Permissions('brand.update')`           | Same permission-string convention, applied per-route instead of via policy class resolution |
-| `HasEvent` (`Event::dispatch("{table}.{key}")`)     | `EventEmitter2` via `BaseRepository#emit()`                   | Same `"{collection}.{event}.before/after"` naming |
-| `ResponseMessage` (`lang()`, `lang/en/app.php`)     | `MessageService#lang()`                                       | Same key set & `:param` interpolation; register per-module overrides via `messages.register(namespace, {...})` |
-| `Nullify` adapter                                   | `nullify()` util                                               | Same recursive empty→null behavior |
-| `MakeModuleCrudCommand` (`module:make-supersonic-crud`) | `tools/generate-module.js`                                | Zero-dependency Node scaffolder — no Nest CLI schematic plugin required |
-
-## Installing it into a NestJS app
-
-This package is framework glue, not a database driver — install its peers alongside it:
+## Getting started
 
 ```bash
-npm install @nestjs/common @nestjs/core @nestjs/mongoose mongoose \
-            @nestjs/event-emitter @nestjs/mapped-types \
-            class-validator class-transformer reflect-metadata rxjs
+npm install
+cp .env.example .env            # then point DB_* at your database
+npm run migration:run           # create the tables
+npm run start:dev               # http://localhost:3000/v1/brands
 ```
 
-Then either:
+Requires Node 22.13+ and a Postgres, MySQL or MariaDB database. Postgres (`pg`) is
+installed by default. For MySQL/MariaDB, `npm install mysql2` and set `DB_TYPE`.
 
-- **Monorepo / npm workspace**: add `"nestjs-core": "workspace:*"` (or a `file:` path) to
-  your backend's `package.json`, or
-- **Standalone**: copy `src/` into your app as `src/core/` and import from `../core`
-  instead of `@cosmetic/nestjs-core`.
+## Scripts
 
-Either way, run `npm run build` here first if you're consuming the compiled `dist/`
-output rather than the TypeScript source directly.
+| Script | What it does |
+|--------|--------------|
+| `start:dev` / `start:debug` | Run the API with watch mode (and the inspector) |
+| `build` / `start:prod` | Bundle to `dist/apps/api/main.js` and run it |
+| `test` | Unit tests (`*.spec.ts`, next to the code they test) |
+| `test:e2e` | HTTP tests in `apps/api/test/` against an in-memory sql.js database built by the real migrations |
+| `typecheck` | Type-check everything, specs included |
+| `lint` / `format` | oxlint / Prettier |
+| `migration:run` / `migration:revert` / `migration:show` | Apply, roll back or list migrations |
+| `migration:generate --name=AddFooToBrands` | Diff the entities against the database and write a migration |
+| `migration:create --name=Backfill` | Empty migration for hand-written changes |
+| `generate:module -- Category` | Scaffold a full CRUD module into `apps/api/src/modules/` |
 
-## Assembling `AppModule`
+## Migrations
 
-```ts
-// main.ts
-import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
-import { AppModule } from './app.module';
+A typical schema change:
 
-async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
-
-  // whitelist: true strips unknown DTO fields (the class-validator equivalent
-  // of Laravel's $fillable allow-list). Comparison-operator query params
-  // (__gte_price) bypass this entirely - they're read via @ListQuery(),
-  // never through a validated DTO. See common/utils/query-parser.util.ts.
-  app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
-
-  await app.listen(3000);
-}
-bootstrap();
+```bash
+# 1. change an entity, then diff it against the database in .env
+npm run migration:generate --name=AddCountryToBrands
+# 2. register the new class in apps/api/src/database/migrations/index.ts
+# 3. apply it
+npm run migration:run
 ```
 
-```ts
-// app.module.ts
-import { Module } from '@nestjs/common';
-import { MongooseModule } from '@nestjs/mongoose';
-import { EventEmitterModule } from '@nestjs/event-emitter';
-import { CoreModule } from '@cosmetic/nestjs-core';
-import { BrandModule } from './modules/brand/brand.module';
+- **Register every migration** in `apps/api/src/database/migrations/index.ts`. The app
+  is bundled into one file, so there's no migrations folder to glob at runtime.
+- `migration:generate` writes SQL for the database you point it at. Generate against
+  the same kind of database you deploy to. `CreateBrandsTable` is hand-written with
+  TypeORM's `Table` API instead, so it runs on every supported driver, including
+  the e2e tests' sql.js.
+- The CLI loads `apps/api/src/database/data-source.ts`, which reuses the app's
+  database config and reads `.env`.
 
-@Module({
-  imports: [
-    CoreModule,                       // global filter/interceptor/MessageService/PermissionsGuard
-    EventEmitterModule.forRoot(),      // powers BaseRepository's lifecycle events
-    MongooseModule.forRoot(process.env.MONGO_URI),
-    BrandModule,
-  ],
-})
-export class AppModule {}
+## Testing
+
+- **Unit tests** (`npm test`) sit next to the code as `*.spec.ts`. Library specs
+  (e.g. `base.repository.spec.ts`) run against an in-memory sql.js database. App specs
+  use `Test.createTestingModule()` with mocked repositories.
+- **e2e tests** (`npm run test:e2e`) live in `apps/api/test/`. They boot the real
+  `AppModule` via `setupApp()` against in-memory sql.js with `DB_MIGRATIONS_RUN=true`,
+  so every run also checks the migrations. The env for this is set in
+  `vitest.config.e2e.ts`, so no `.env` or database is needed.
+- `vitest.config.ts` enables legacy decorators + decorator metadata explicitly.
+  Keep that setting: Nest DI and TypeORM depend on it.
+
+## Project structure
+
+```
+apps/api/
+├── src/
+│   ├── main.ts                     Bootstrap
+│   ├── app.module.ts               Config, TypeORM, EventEmitter, CoreModule, feature modules
+│   ├── app.setup.ts                URI versioning + shutdown hooks, shared with e2e tests
+│   ├── config/                     registerAs() config namespaces + env validation
+│   ├── database/
+│   │   ├── data-source.ts          DataSource for the TypeORM CLI
+│   │   └── migrations/             Migrations + the index that registers them
+│   └── modules/brand/              Reference feature module
+│       ├── entities/brand.entity.ts
+│       ├── dto/                    Create/Update DTOs (class-validator)
+│       ├── brand.repository.ts     extends BaseRepository<Brand>
+│       ├── brand.service.ts        extends BaseCrudService<Brand>
+│       ├── brand.controller.ts     extends BaseController
+│       ├── brand.resource.ts       extends BaseResource<Brand>
+│       └── brand.module.ts
+└── test/                           e2e specs
+
+libs/core/src/
+├── core.module.ts                  Global module: ValidationPipe, filter, interceptor, MessageService, PermissionsGuard
+├── index.ts                        Public API (import everything from '@app/core')
+├── common/
+│   ├── constants/  decorators/  exceptions/  interfaces/  utils/
+│   ├── filters/all-exceptions.filter.ts
+│   ├── guards/permissions.guard.ts
+│   └── interceptors/transform-response.interceptor.ts
+├── controllers/base.controller.ts
+├── database/core.entity.ts         CoreEntity: uuid id, timestamps, soft delete
+├── i18n/message.service.ts
+├── repositories/                   BaseRepository + IBaseRepository
+├── resources/base.resource.ts
+└── services/base-crud.service.ts
+
+tools/generate-module.js            Module scaffolder
 ```
 
-`CoreModule` is `@Global()` — import it exactly once, at the root. It registers:
+## Configuration
 
-- `AllExceptionsFilter` as `APP_FILTER` (every uncaught error → `{ message }` JSON,
-  status-code mapped)
-- `TransformResponseInterceptor` as `APP_INTERCEPTOR` (every response → `{ message?, data? }`
-  envelope)
-- `MessageService` and `PermissionsGuard`, exported for feature modules to inject / apply
+Environment variables are validated at startup (`apps/api/src/config/env.validation.ts`),
+and the app refuses to boot with a list of what's missing. See `.env.example` for
+every variable. Read config through `ConfigService` or by injecting a namespace
+(`@Inject(databaseConfig.KEY)`), not through `process.env` directly.
+
+`DB_SYNCHRONIZE` should stay `false` anywhere but a throwaway local database. Use
+migrations instead. `DB_MIGRATIONS_RUN=true` applies pending migrations on startup.
 
 ## Building a feature module
 
-`example/brand/` is a complete worked example — a Mongo/Nest port of `Modules/Brand`.
-The shape to copy for a new entity:
+`npm run generate:module -- Category` writes all of these. Then add the module to
+`AppModule` and generate its migration. The shape, using `brand` as the reference:
 
-1. **Schema** (`schemas/x.schema.ts`) — extend `BaseSchema`, declare `@Schema({ timestamps: true })`,
-   export a `X_SEARCHABLE_FIELDS` array (equivalent of `Brand::searchable()`).
-2. **DTOs** (`dto/create-x.dto.ts`, `dto/update-x.dto.ts`) — `class-validator` decorators;
-   update DTO is `PartialType(CreateXDto)`.
-3. **Repository** (`x.repository.ts`) — `extends BaseRepository<XDocument>`, inject the
-   Mongoose model + `EventEmitter2`, pass `X_SEARCHABLE_FIELDS`. Add custom queries here.
-4. **Resource** (`x.resource.ts`) — `extends BaseResource<XDocument>`, implement `toJSON()`.
-   Never return a raw Mongoose document from a controller.
-5. **Service** (`x.service.ts`) — `extends BaseCrudService<XDocument>`. Empty body = plain
-   CRUD; override only the method(s) with real business logic.
-6. **Controller** (`x.controller.ts`) — `extends BaseController`, one method per route,
-   `@Permissions('x.action')` per route, call `this.success(this.lang(key), payload)`.
-7. **Module** (`x.module.ts`) — `MongooseModule.forFeature([...])` + wire
-   controller/repository/service together; export the service if other modules need it.
+1. **Entity** (`entities/x.entity.ts`): extend `CoreEntity`, declare
+   `@Entity('table_name')` and `@Column()`s, and export an `X_SEARCHABLE_FIELDS` array
+   (the equivalent of `Brand::searchable()`). **Always give `@Column` an explicit `type`.**
+   The migration CLI runs through `tsx`, which doesn't emit the decorator metadata
+   TypeORM would otherwise infer it from.
+2. **DTOs** (`dto/`): `class-validator` decorators. The update DTO is `PartialType(CreateXDto)`.
+3. **Repository** (`x.repository.ts`): `extends BaseRepository<X>`. Inject
+   `@InjectRepository(X) Repository<X>` + `EventEmitter2` and pass `X_SEARCHABLE_FIELDS`.
+   Put custom queries here (`this.repository.createQueryBuilder(...)`).
+4. **Resource** (`x.resource.ts`): `extends BaseResource<X>` and implement `toJSON()`.
+   Never return a raw entity from a controller.
+5. **Service** (`x.service.ts`): `extends BaseCrudService<X>`. An empty body gives plain
+   CRUD. Override only the methods with real business logic.
+6. **Controller** (`x.controller.ts`): `@Controller({ path: 'xs', version: '1' })`,
+   `extends BaseController`, `@Permissions('x.action')` per route, and return
+   `this.success(this.lang(key), payload)`.
+7. **Module** (`x.module.ts`): `TypeOrmModule.forFeature([X])` plus the
+   controller/repository/service. Export the service if other modules need it.
 
-Or scaffold all seven files in one shot:
+ESM note: relative imports end in `.js` (`'./brand.service.js'`). Types used only in
+decorated signatures are imported with `import type` (required by `isolatedModules`).
 
-```bash
-node tools/generate-module.js Category
-# writes ./generated/category/... — copy into src/modules/category, wire into AppModule
+## Request lifecycle (list endpoint)
+
 ```
-
-## Request lifecycle (list endpoint example)
-
-```
-GET /v1/brands?search=matte&sortOrder=asc&__gte_sortOrder=2&page=2
+GET /v1/brands?search=matte&sortBy=sortOrder&sortOrder=asc&__gte_sortOrder=2&page=2
         │
         ▼
-@ListQuery() decorator → parseListQuery(req.query) → ParsedListQuery
+@ListQuery() → parseListQuery(req.query) → ParsedListQuery
         │
         ▼
 BrandController#index() → BrandService#index() (inherited) → BrandRepository#findAll()
         │
         ▼
-buildFilter() turns ParsedListQuery into a Mongo filter (deletedAt scope + $or search
-+ filter[] + __gte_/__like_/... comparison operators), applies sort + skip/limit
+buildListQuery() turns ParsedListQuery into a TypeORM QueryBuilder: soft-delete scope,
+OR'd LIKE search, filter[], __gte_/__like_/... comparisons (all bound parameters),
+sort validated against the entity's columns, skip/take
         │
         ▼
-BrandResource.collection(result.data) shapes the documents for the wire
-        │
-        ▼
-controller returns this.success(message, { data, meta })
-        │
-        ▼
-TransformResponseInterceptor passes the envelope through unchanged
+BrandResource.collection(result.data) shapes the entities for the wire
         │
         ▼
 { "message": "List fetched successfully.", "data": { "data": [...], "meta": {...} } }
 ```
 
-Errors at any step (thrown `HttpException`, a Mongoose `CastError`/`ValidationError`, a
-duplicate-key `11000`, or anything unexpected) are caught once by `AllExceptionsFilter`
-and turned into the same `{ message }` shape Laravel's `ExceptionHandler` trait produces.
+Errors at any step are caught once by `AllExceptionsFilter` and returned as
+`{ message }`. That covers a thrown `HttpException`, a failed DTO validation (400), a
+unique or foreign-key violation (409), a not-null violation (422), a malformed id
+(400), or anything unexpected (500, logged).
+
+Only fields in `X_SEARCHABLE_FIELDS` can be searched, filtered or compared.
+Comparison params on any other field are ignored.
 
 ## Soft delete
 
-Mongoose has no built-in soft delete, so `BaseSchema` adds a `deletedAt: Date | null`
-field and `BaseRepository` scopes every read by it:
+`CoreEntity.deletedAt` is a TypeORM `@DeleteDateColumn`, so every `find*()` skips
+trashed rows automatically.
 
-- Default: only `deletedAt: null` documents are returned.
-- `?withTrashed=true`: include soft-deleted documents too.
-- `?onlyTrashed=true`: only soft-deleted documents.
-- `delete(id)` sets `deletedAt`; `restore(id)`/`bulkRestore(ids)` clear it back to `null`.
+- Default: only live rows.
+- `?withTrashed=true`: include soft-deleted rows.
+- `?onlyTrashed=true`: only soft-deleted rows.
+- `delete(id)` sets `deletedAt`. `restore(id)` and `bulkRestore(ids)` clear it.
 
-## Deliberate departures from the Laravel version
+## Auth
 
-- **No `HasBinding`/macro system.** Nest's constructor DI (`{ provide: X, useClass: Y }`,
-  or a factory provider keyed off a condition) already covers "swap the concrete
-  implementation" — a bespoke macro/factory trait would just be reimplementing DI on top
-  of DI.
-- **No `BaseRequest` method-switch.** Two DTOs (`CreateXDto` / `UpdateXDto extends
-  PartialType(CreateXDto)`) is the idiomatic Nest shape and reads better than branching
-  on HTTP verb inside one class.
-- **Response shaping and error handling are global, not per-controller.** Laravel's
-  `BaseController` mixes in `ApiResponse` + `ExceptionHandler` per class; Nest's
-  filter/interceptor pipeline lets `CoreModule` register both exactly once for the whole
-  app, so `BaseController` itself stays down to `success()`/`lang()`/`toResource()`.
-- **`fillable` has no equivalent.** Mass-assignment protection happens at the DTO layer
-  (`class-validator` + `whitelist: true`) instead of on the model, since that's where
-  Nest already validates the request boundary.
+There is no auth module yet. `PermissionsGuard` checks `request.user.permissions`
+against the route's `@Permissions(...)`, so until an auth guard/strategy (e.g.
+`@nestjs/passport` + JWT) populates `request.user`, the Brand routes return 403.
+`apps/api/test/brand.e2e-spec.ts` shows how a user is attached.
+
+## Troubleshooting
+
+| Symptom | Cause / fix |
+|---|---|
+| App exits with `Invalid environment configuration` | A required env var is missing or malformed. Compare `.env` with `.env.example`. |
+| `Cannot find module './foo'` at runtime | ESM needs the extension: `import ... from './foo.js'`. |
+| `A type referenced in a decorated signature must be imported with 'import type'` | Use `import type { X }` for interfaces used in decorated method params. |
+| Migration CLI: `Data type "Object" ... is not supported` or column type errors | Add an explicit `type` to that `@Column`. |
+| Vitest: `SyntaxError: Invalid or unexpected token` in a file with decorators | The `oxc.decorator` setting was removed from `vitest.config.ts`. Restore it. |
+| `npm install <pkg>` crashes with `Cannot read properties of null (reading 'edgesOut')` | An npm 10 dependency-resolution bug with the Vitest peer graph. Use `npx npm@11 install <pkg>`. Plain `npm ci` / `npm install` from the lockfile work fine on npm 10. |
+
+## Laravel → NestJS mapping
+
+| Laravel (`Modules/Core`) | NestJS (`@app/core`) | Notes |
+|---|---|---|
+| `BaseRepository` + `BaseRepositoryInterface` | `BaseRepository<T>` + `IBaseRepository<T>` | Same method set (`fetchAll`→`findAll`, `fetch`→`findById`, `store`→`create`, ...), TypeORM instead of Eloquent |
+| `Filterable` trait | `parseListQuery()` + `BaseRepository#buildListQuery()` | `?search=`, `filter[]`, `__gte_x` comparison params, sort, pagination: same query contract |
+| `BaseModel` + `HasSearchable` + `HasFillable` | `CoreEntity` + a `SEARCHABLE_FIELDS` const per entity | `getFillable()` has no equivalent. DTOs + `whitelist: true` are the allow-list, enforced at the edge |
+| `with()` eager loading | `relations` arg (`['category', 'category.parent']`) | |
+| `BaseService` + `HasBinding` | `BaseCrudService<T>` | Nest's DI (`{ provide, useClass }`) replaces the macro/factory swap |
+| `BaseController` + `ApiResponse` + `ExceptionHandler` | `BaseController` (thin) + `TransformResponseInterceptor` + `AllExceptionsFilter` | Response shaping and error handling are **global**, registered once by `CoreModule` |
+| `BaseRequest` (store()/update() rule switch) | `CreateXDto` + `UpdateXDto extends PartialType(CreateXDto)` | |
+| `BaseResource` + `CustomResource` + `ResourceRelationships` + `ResourceTimestamps` | `BaseResource<T>` | `make()`/`collection()`, `withTimestamps()`, `whenLoaded()`, `pick()` |
+| `BasePolicy` (Spatie `{policyKey}.{action}`) | `PermissionsGuard` + `@Permissions('brand.update')` | Same permission-string convention, per route |
+| `HasEvent` (`Event::dispatch("{table}.{key}")`) | `EventEmitter2` via `BaseRepository#emit()` | Same `"{table}.{event}.before/after"` naming |
+| `ResponseMessage` (`lang()`, `lang/en/app.php`) | `MessageService#lang()` | Same keys and `:param` interpolation. Per-module overrides via `messages.register(namespace, {...})` |
+| `Nullify` adapter | `nullify()` | Same recursive empty→null behavior |
+| `MakeModuleCrudCommand` | `npm run generate:module` | `nest g resource` doesn't know about the base classes, hence the custom scaffolder |
